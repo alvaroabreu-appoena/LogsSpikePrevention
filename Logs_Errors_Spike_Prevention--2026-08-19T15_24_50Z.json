@@ -1,0 +1,221 @@
+{
+  "id": "8ea13074-529b-4aed-88e9-926ed271973b",
+  "name": "Logs Errors Spike Prevention",
+  "description": "",
+  "tags": [],
+  "published": true,
+  "spec": {
+    "triggers": [
+      {
+        "startStepNames": [
+          "Extrair_service_tag"
+        ],
+        "monitorTrigger": {}
+      }
+    ],
+    "steps": [
+      {
+        "name": "Extrair_service_tag",
+        "actionId": "com.datadoghq.datatransformation.func",
+        "parameters": [
+          {
+            "name": "script",
+            "value": "// Access tags from the monitor's source\nconst tags = $.Source.monitor?.event.tags || [];\n\n// Find the 'service' tag and extract the service name\nconst serviceTag = tags.find(tag => tag.startsWith('service:'));\nconst serviceName = serviceTag ? serviceTag.split(':')[1] : null;\n\nreturn serviceName;"
+          }
+        ],
+        "outboundEdges": [
+          {
+            "nextStepName": "Solicitar_autorizacao",
+            "branchName": "main"
+          }
+        ],
+        "display": {
+          "bounds": {
+            "x": 0,
+            "y": 144
+          }
+        }
+      },
+      {
+        "name": "Solicitar_autorizacao",
+        "actionId": "com.datadoghq.slack.send_interactive_message",
+        "parameters": [
+          {
+            "name": "actionChoices",
+            "value": [
+              {
+                "displayName": ":white_check_mark: Aprove",
+                "outboundBranch": "aprove"
+              },
+              {
+                "displayName": "❌ Cancel",
+                "outboundBranch": "cancel"
+              }
+            ]
+          },
+          {
+            "name": "promptText",
+            "value": "**Spike Logs Prevention Workflow**\n*Alert* {{ Source.monitor.name }}\n*Alert Message:* {{ Source.monitor.message }}\n\n*Servce:* {{ Steps.Extrair_service_tag.data }}\n*Objective:* 90% Sampling\n\n**Approve the creation of the sampling filter?**\n\n"
+          },
+          {
+            "name": "teamId",
+            "value": "T025796A4J0"
+          },
+          {
+            "name": "timeoutHours",
+            "value": 24
+          },
+          {
+            "name": "mentionTargets",
+            "value": [
+              "@U06HN68PX32"
+            ]
+          },
+          {
+            "name": "channel",
+            "value": "#uzumaki-status"
+          }
+        ],
+        "outboundEdges": [
+          {
+            "nextStepName": "Obter_logs_index",
+            "branchName": "aprove"
+          },
+          {
+            "nextStepName": "Notificar_rejeicao",
+            "branchName": "cancel"
+          }
+        ],
+        "display": {
+          "bounds": {
+            "x": 0,
+            "y": 228
+          }
+        }
+      },
+      {
+        "name": "Obter_logs_index",
+        "actionId": "com.datadoghq.dd.logsindexes.getLogsIndex",
+        "parameters": [
+          {
+            "name": "name",
+            "value": "prod"
+          }
+        ],
+        "outboundEdges": [
+          {
+            "nextStepName": "Preparar_exclusion_filters",
+            "branchName": "main"
+          }
+        ],
+        "display": {
+          "bounds": {
+            "x": -132,
+            "y": 396
+          }
+        }
+      },
+      {
+        "name": "Preparar_exclusion_filters",
+        "actionId": "com.datadoghq.datatransformation.func",
+        "parameters": [
+          {
+            "name": "script",
+            "value": "// Retrieve existing exclusion filters\nconst existingFilters = $.Steps.Obter_logs_index.exclusion_filters || [];\n\n// Get the service from Extrair_service_tag step\nconst service = $.Steps.Extrair_service_tag.data; // Assuming the service is stored in 'data'\n\n// Define the new exclusion filter using the service from Extrair_service_tag\nconst newFilter = {\n    name: `error_exclusion_${service}`,\n    filter: {\n        query: `status:error service:${service}`,\n        sample_rate: 0.9 // 90% exclusion\n    },\n    is_enabled: true // Assuming the new filter should be enabled by default\n};\n\n// Append the new filter to the existing filters\nexistingFilters.push(newFilter);\n\n// Return the updated list of exclusion filters\nreturn existingFilters;"
+          }
+        ],
+        "outboundEdges": [
+          {
+            "nextStepName": "Atualizar_exclusion_filter",
+            "branchName": "main"
+          }
+        ],
+        "display": {
+          "bounds": {
+            "x": -132,
+            "y": 516
+          }
+        }
+      },
+      {
+        "name": "Atualizar_exclusion_filter",
+        "actionId": "com.datadoghq.dd.logsindexes.updateLogsIndex",
+        "parameters": [
+          {
+            "name": "exclusion_filters",
+            "value": "{{ Steps.Preparar_exclusion_filters.data }}"
+          },
+          {
+            "name": "name",
+            "value": "{{ Steps.Obter_logs_index.name }}"
+          },
+          {
+            "name": "query",
+            "value": "{{ Steps.Obter_logs_index.filter.query }}"
+          }
+        ],
+        "outboundEdges": [
+          {
+            "nextStepName": "Notificar_sucesso",
+            "branchName": "main"
+          }
+        ],
+        "display": {
+          "bounds": {
+            "x": -132,
+            "y": 588
+          }
+        }
+      },
+      {
+        "name": "Notificar_sucesso",
+        "actionId": "com.datadoghq.slack.send_simple_message",
+        "parameters": [
+          {
+            "name": "teamId",
+            "value": "T025796A4J0"
+          },
+          {
+            "name": "text",
+            "value": "✅ *Exclusion Filter Created*\n\nThe Workflow creates the Exclusion Filter in Index main *{{ Steps.Extrair_service_tag.data }}*.\n\n*Details:*\n• Filter name {{ Steps.Atualizar_exclusion_filter.name }}\n• Query: `{{ Steps.Obter_logs_index.filter.query }}`\n• Status: Active"
+          },
+          {
+            "name": "channel",
+            "value": "#uzumaki-status"
+          }
+        ],
+        "display": {
+          "bounds": {
+            "x": -132,
+            "y": 780
+          }
+        }
+      },
+      {
+        "name": "Notificar_rejeicao",
+        "actionId": "com.datadoghq.slack.send_simple_message",
+        "parameters": [
+          {
+            "name": "teamId",
+            "value": "T025796A4J0"
+          },
+          {
+            "name": "text",
+            "value": "⚠️ *Solicitação Rejeitada*\n\nA criação do exclusion filter foi rejeitada pelo usuário.\n\n*Detalhes:*\n• Workflow: {{ WorkflowName }}\n• Decisão: {{ Steps.Solicitar_autorizacao.decision }}\n• Respondido por: @{{ Steps.Solicitar_autorizacao.responder.username }}"
+          },
+          {
+            "name": "channel",
+            "value": "#uzumaki-status"
+          }
+        ],
+        "display": {
+          "bounds": {
+            "x": 264,
+            "y": 396
+          }
+        }
+      }
+    ],
+    "handle": "Logs-Spike-Prevention"
+  }
+}
