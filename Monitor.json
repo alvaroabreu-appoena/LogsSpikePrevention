@@ -1,0 +1,22 @@
+{
+	"id": 244371694,
+	"name": "Logs Spikes Prevention {{service.name}}",
+	"type": "query alert",
+	"query": "sum(last_1h):sum:datadog.estimated_usage.logs.ingested_events{status:error, datadog_index:prod, datadog_is_excluded:false} by {service,datadog_index}.as_count() > 1000000",
+	"message": "The service’s error log volume has exceeded the hourly threshold of {{threshold}}.\n\nTo mitigate excessive log ingestion and control costs, the Workflow will be triggered to reduce the indexing of these errors.\n\n\n[Dashboard](https://app.datadoghq.com/dash/integration/30602/log-management---estimated-usage?tpl_var_service%5B0%5D={{service.name}})\n\n\n{{#is_alert}}@workflow-Logs-Spike-Prevention{{/is_alert}}",
+	"tags": [
+		"managed_by:appoena"
+	],
+	"options": {
+		"thresholds": {
+			"critical": 1000000
+		},
+		"notify_audit": false,
+		"on_missing_data": "default",
+		"include_tags": true,
+		"new_group_delay": 60
+	},
+	"priority": 2,
+	"draft_status": "published",
+	"assets": []
+}
